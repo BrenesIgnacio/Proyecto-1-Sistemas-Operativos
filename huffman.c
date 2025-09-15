@@ -75,7 +75,7 @@ struct huffman_node * build_huffman_tree(uint64_t *table, int size) {
     struct huffman_node *huffman_node_list = malloc(TABLE_SIZE * 2 * sizeof(struct huffman_node));
 
     if (huffman_node_list == NULL) {
-        LOGE("OOM.\n");
+    LOGE("Error: Memoria insuficiente.\n");
         return NULL;
     }
 
@@ -157,9 +157,7 @@ int encode(struct buffer_ops *in, struct buffer_ops *out) {
     ZAP(&fh, sizeof(fh));
     memcpy(fh.magic, MAGIC, sizeof(MAGIC));
     fh.file_size = tree->weight;
-    LOGI("File size = %lu\n", tree->weight);
     fh.table_size = TABLE_SIZE - c;
-    LOGI("Table size = %u\n", TABLE_SIZE - c);
     out->write(out, &fh, sizeof(struct huffman_file_header));
     out->write(out, table + c, (TABLE_SIZE - c) * sizeof(uint64_t));
 
@@ -194,20 +192,20 @@ int decode(struct buffer_ops *in, struct buffer_ops *out) {
     struct huffman_node *tree = NULL,*walk;
 
     if (in->read(in, &fh, sizeof(fh)) != sizeof(fh)) {
-        LOGE("Read file header failed.\n");
+    LOGE("Error: Falló la lectura de la cabecera del archivo.\n");
         return 1;
     }
     if (strcmp(fh.magic, MAGIC)) {
-        LOGE("Miss magic number, abort.\n");
+    LOGE("Error: Número mágico incorrecto, abortando.\n");
         return 1;
     }
     if (in->read(in, table, sizeof(uint64_t) * fh.table_size) != fh.table_size * sizeof(uint64_t)) {
-        LOGE("Read table failed.\n");
+    LOGE("Error: Falló la lectura de la tabla.\n");
         return 1;
     }
 
     if (fh.table_size > TABLE_SIZE) {
-        LOGE("Table size is invalid.\n");
+    LOGE("Error: El tamaño de la tabla es inválido.\n");
         return 1;
     }
 
@@ -222,7 +220,7 @@ int decode(struct buffer_ops *in, struct buffer_ops *out) {
     while (size < fh.file_size) {
         if (!used_bits) {
             if (in->eof(in)) {
-                LOGE("Unexpect file end, size = %lu\n", size);
+                LOGE("Error: Fin inesperado de archivo, tamaño = %lu\n", size);
                 return 1;
             }
             in->read(in, &cached_c, 1);
