@@ -13,13 +13,3 @@
     ./huffman -empty
 ```
 
-## Para archivos adicionales
-Comprimir:
-```shell
-./huffman -e input [output]
-```
-Descomprimir:
-```shell
-./huffman -d input [output]
-```
-
