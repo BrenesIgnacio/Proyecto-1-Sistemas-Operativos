@@ -11,7 +11,6 @@
 TODO:
 - Hay que cambiar un poco la logica del main para que en lugar de crear varios archivos comprimidos
 genere un solo archivo comprimido que contenga todos los libros.
-- Hay que agregar el tiempo de compresion y descompresion en el output del programa. (milisegundos)
 - Pthreads para comprimir y descomprimir en paralelo.
 - Fork para comprimir y descomprimir en paralelo.
 - Agregar el resto de libros en el folder libros.
