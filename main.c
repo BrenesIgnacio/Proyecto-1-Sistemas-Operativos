@@ -64,7 +64,6 @@ OUT:
 
 int main(int argc, char *argv[]) {
     // Si se pasa el argumento -empty, vacía los directorios de salida
-    char *input, *output;
     // -empty
     if (argc >= 2 && !strcmp(argv[1], "-empty")) {
         struct dirent *entry;
@@ -106,7 +105,6 @@ int main(int argc, char *argv[]) {
         return 0;
     }
     if (argc < 2) {
-
         // Si no hay argumentos, se comprimen todos los .txt en 'libros/' a un solo archivo en 'librosHzip/'
         // y luego se descomprime ese archivo en 'librosHunzip/'.
         // Medición de tiempo de compresión
@@ -214,25 +212,7 @@ int main(int argc, char *argv[]) {
 
         clock_t end_dec_time = clock();
         double elapsed_dec_ms = ((double)(end_dec_time - start_dec_time)) * 1000.0 / CLOCKS_PER_SEC;
-    printf("Tiempo de descompresión: %.2f ms\n", elapsed_dec_ms);
+        printf("Tiempo de descompresión: %.2f ms\n", elapsed_dec_ms);
         return 0;
     }
-    if (argc < 3) {
-    LOGE("Error: Faltan argumentos.\n");
-    LOGE("Uso: -d/-e entrada [salida]\n");
-        return 1;
-    }
-    input = argv[2];
-    output = NULL;
-    if (argc > 3) {
-        output = argv[3];
-    }
-    if (!strcmp(argv[1], "-e")) {
-        file_encode(input, output);
-    } else if (!strcmp(argv[1], "-d")) {
-        file_decode(input, output);
-    } else {
-    LOGE("Error: Acción desconocida.\n");
-    }
-    return 0;
 }
