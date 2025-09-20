@@ -119,7 +119,7 @@ void compress_file_task(struct compress_task *task) {
     result.compressed_size = pmr->cur;
 
     // Crear archivo temporal para este proceso
-    char temp_file[256];
+    char temp_file[512];  // Buffer más grande
     snprintf(temp_file, sizeof(temp_file), "/tmp/huff_temp_%zu_%d", task->file_index, getpid());
     
     FILE *temp_fp = fopen(temp_file, "wb");
@@ -169,9 +169,7 @@ int combine_temp_files(const char *output_file, struct compress_result *results,
     for (int i = 0; i < num_files; i++) {
         if (!results[i].success) continue;
 
-        char temp_file[256];
-        snprintf(temp_file, sizeof(temp_file), "/tmp/huff_temp_%zu_%d", 
-                results[i].file_index, getpid());
+        char temp_file[512];  // Aumentar tamaño del buffer
         
         // Buscar el archivo temporal creado por cualquier proceso hijo
         DIR *temp_dir = opendir("/tmp");
@@ -180,6 +178,9 @@ int combine_temp_files(const char *output_file, struct compress_result *results,
             char pattern[64];
             snprintf(pattern, sizeof(pattern), "huff_temp_%zu_", results[i].file_index);
             
+            // Inicializar temp_file con valor por defecto
+            snprintf(temp_file, sizeof(temp_file), "/tmp/huff_temp_%zu_0", results[i].file_index);
+            
             while ((entry = readdir(temp_dir))) {
                 if (strncmp(entry->d_name, pattern, strlen(pattern)) == 0) {
                     snprintf(temp_file, sizeof(temp_file), "/tmp/%s", entry->d_name);
@@ -187,6 +188,9 @@ int combine_temp_files(const char *output_file, struct compress_result *results,
                 }
             }
             closedir(temp_dir);
+        } else {
+            // Si no se puede abrir /tmp, usar nombre por defecto
+            snprintf(temp_file, sizeof(temp_file), "/tmp/huff_temp_%zu_0", results[i].file_index);
         }
 
         FILE *temp_fp = fopen(temp_file, "rb");
@@ -205,18 +209,15 @@ int combine_temp_files(const char *output_file, struct compress_result *results,
     return 0;
 }
 
-// Función para descompresión paralela
+// Función para descompresión paralela mejorada
 int parallel_decompress(const char *archive_file) {
-    // Para la descompresión, mantenemos el enfoque secuencial ya que 
-    // los archivos están concatenados en el archivo único
-    // Pero podríamos paralelizar la escritura de múltiples archivos simultáneamente
-
     FILE *archive = fopen(archive_file, "rb");
     if (!archive) {
         LOGE("Error: No se pudo abrir el archivo único para descomprimir.\n");
         return 1;
     }
 
+    // Estructura para información de archivos
     struct {
         char filename[256];
         uint32_t size;
@@ -225,7 +226,7 @@ int parallel_decompress(const char *archive_file) {
     
     int file_count = 0;
     
-    // Primera pasada: recopilar información de todos los archivos
+    // Primera pasada: recopilar información de todos los archivos (secuencial)
     while (file_count < MAX_FILES) {
         uint8_t name_len;
         if (fread(&name_len, 1, 1, archive) != 1) break;
@@ -242,7 +243,12 @@ int parallel_decompress(const char *archive_file) {
     
     fclose(archive);
 
-    // Procesar archivos en paralelo
+    if (file_count == 0) {
+        LOGE("Error: No se encontraron archivos en el archivo comprimido.\n");
+        return 1;
+    }
+
+    // Segunda fase: descompresión paralela
     int active_processes = 0;
     int files_processed = 0;
     pid_t child_pids[MAX_PROCESSES];
@@ -255,26 +261,31 @@ int parallel_decompress(const char *archive_file) {
             pid_t pid = fork();
             if (pid == 0) {
                 // Proceso hijo: descomprimir un archivo específico
-                FILE *archive = fopen(archive_file, "rb");
-                if (!archive) exit(1);
+                FILE *archive_child = fopen(archive_file, "rb");
+                if (!archive_child) exit(1);
                 
-                fseek(archive, file_info[current_file].offset, SEEK_SET);
+                // Ir a la posición del archivo en el archivo comprimido
+                if (fseek(archive_child, file_info[current_file].offset, SEEK_SET) != 0) {
+                    fclose(archive_child);
+                    exit(1);
+                }
                 
+                // Leer datos comprimidos
                 char *buf = malloc(file_info[current_file].size);
                 if (!buf) {
-                    fclose(archive);
+                    fclose(archive_child);
                     exit(1);
                 }
                 
-                if (fread(buf, 1, file_info[current_file].size, archive) != file_info[current_file].size) {
+                if (fread(buf, 1, file_info[current_file].size, archive_child) != file_info[current_file].size) {
                     free(buf);
-                    fclose(archive);
+                    fclose(archive_child);
                     exit(1);
                 }
                 
-                fclose(archive);
+                fclose(archive_child);
                 
-                // Decodificar
+                // Decodificar desde buffer en memoria
                 struct buffer_ops *mem_ops = create_mem_buffer_ops(buf, file_info[current_file].size);
                 char output_path[512];
                 snprintf(output_path, sizeof(output_path), "librosHunzip/%s", file_info[current_file].filename);
@@ -284,13 +295,21 @@ int parallel_decompress(const char *archive_file) {
                     decode(mem_ops, out_ops);
                     desotry_mem_buffer_ops(mem_ops);
                     desotry_file_buffer_ops(out_ops);
+                    free(buf);
+                    exit(0);  // Éxito
+                } else {
+                    if (mem_ops) desotry_mem_buffer_ops(mem_ops);
+                    if (out_ops) desotry_file_buffer_ops(out_ops);
+                    free(buf);
+                    exit(1);  // Error
                 }
-                
-                free(buf);
-                exit(0);
             } else if (pid > 0) {
+                // Proceso padre: guardar PID del hijo
                 child_pids[active_processes] = pid;
                 active_processes++;
+            } else {
+                perror("fork en descompresión");
+                return 1;
             }
         }
         
@@ -299,11 +318,18 @@ int parallel_decompress(const char *archive_file) {
             int status;
             pid_t finished_pid = wait(&status);
             
+            // Verificar si el proceso terminó correctamente
+            if (WIFEXITED(status) && WEXITSTATUS(status) != 0) {
+                LOGE("Error: Proceso de descompresión falló\n");
+            }
+            
             // Buscar y remover el PID terminado
             for (int i = 0; i < active_processes; i++) {
                 if (child_pids[i] == finished_pid) {
                     // Mover el último elemento a esta posición
-                    child_pids[i] = child_pids[active_processes - 1];
+                    for (int j = i; j < active_processes - 1; j++) {
+                        child_pids[j] = child_pids[j + 1];
+                    }
                     break;
                 }
             }
@@ -314,7 +340,8 @@ int parallel_decompress(const char *archive_file) {
     
     // Esperar a que terminen todos los procesos restantes
     while (active_processes > 0) {
-        wait(NULL);
+        int status;
+        wait(&status);
         active_processes--;
     }
     
