@@ -7,6 +7,10 @@ if [[ $EUID -ne 0 ]]; then
    exit 1
 fi
 
+echo "Iniciando instalación de git..."
+sudo apt-get update
+sudo apt-get install -y git
+
 echo "Actualizando lista de paquetes..."
 apt-get update -y
 
